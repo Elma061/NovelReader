@@ -17,8 +17,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.LazyRow
-import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
@@ -39,9 +37,12 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.boundsInRoot
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -66,40 +67,42 @@ import kotlinx.coroutines.withContext
 fun BookDetailScreen(
     book: Book,
     onBack: () -> Unit,
-    onStartReading: (BookFile, Int) -> Unit
+    onStartReading: (BookFile, Int, Int, Int) -> Unit,
+    onCoverBounds: (Rect) -> Unit = {},
+    onDelete: () -> Unit = {}
 ) {
     val context = LocalContext.current
     val progressRepo = remember(context) { ReadingProgressRepository(context) }
     val files = remember(book.uri) { listBookFiles(context, book) }
     val readState = remember(book.uri) { progressRepo.load(book.uri) }
-
-    var selectedIndex by remember(book.uri) { mutableStateOf(initialFileIndex(files, readState)) }
-    val file = files.getOrNull(selectedIndex)
+    val file = files.firstOrNull()
 
     Scaffold(
         topBar = {
             TopAppBar(
                 title = { Text(book.title, maxLines = 1, overflow = TextOverflow.Ellipsis) },
-                navigationIcon = { IconButton(onClick = onBack) { Text("←", fontSize = 22.sp) } }
+                navigationIcon = { IconButton(onClick = onBack) { Text("←", fontSize = 22.sp) } },
+                actions = {
+                    IconButton(onClick = onDelete) { Text("🗑", fontSize = 18.sp) }
+                }
             )
         }
     ) { innerPadding ->
         when {
             file == null -> EmptyHint(
-                text = "该文件夹内没有找到 txt 或 epub 文件",
+                text = "找不到该书籍文件",
                 modifier = Modifier.padding(innerPadding)
             )
             else -> BookDetailContent(
                 book = book,
-                files = files,
                 file = file,
                 readState = readState?.takeIf { it.fileUri == file.uri },
-                onSelectFile = { selectedIndex = files.indexOf(it) },
-                onOpenChapter = { index -> onStartReading(file, index) },
+                onOpenChapter = { index -> onStartReading(file, index, 0, 0) },
                 onStartReading = {
-                    val idx = readState?.takeIf { it.fileUri == file.uri }?.chapterIndex ?: 0
-                    onStartReading(file, idx)
+                    val rs = readState?.takeIf { it.fileUri == file.uri }
+                    onStartReading(file, rs?.chapterIndex ?: 0, rs?.anchorIndex ?: 0, rs?.anchorOffset ?: 0)
                 },
+                onCoverBounds = onCoverBounds,
                 modifier = Modifier.padding(innerPadding)
             )
         }
@@ -109,12 +112,11 @@ fun BookDetailScreen(
 @Composable
 private fun BookDetailContent(
     book: Book,
-    files: List<BookFile>,
     file: BookFile,
     readState: ReadState?,
-    onSelectFile: (BookFile) -> Unit,
     onOpenChapter: (Int) -> Unit,
     onStartReading: () -> Unit,
+    onCoverBounds: (Rect) -> Unit,
     modifier: Modifier
 ) {
     val context = LocalContext.current
@@ -130,11 +132,7 @@ private fun BookDetailContent(
         contentPadding = PaddingValues(16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
-        item { CoverHeader(book, file, detail) }
-
-        if (files.size > 1) {
-            item { FileSelector(files, file, onSelectFile) }
-        }
+        item { CoverHeader(book, file, detail, onCoverBounds) }
 
         item { LastReadCard(readState, onStartReading) }
 
@@ -163,9 +161,11 @@ private fun BookDetailContent(
 }
 
 @Composable
-private fun CoverHeader(book: Book, file: BookFile, detail: EpubDetail?) {
+private fun CoverHeader(book: Book, file: BookFile, detail: EpubDetail?, onCoverBounds: (Rect) -> Unit) {
     Row(verticalAlignment = Alignment.CenterVertically) {
-        CoverImage(detail?.cover, Modifier.size(width = 110.dp, height = 150.dp))
+        Box(Modifier.onGloballyPositioned { onCoverBounds(it.boundsInRoot()) }) {
+            CoverImage(detail?.cover, Modifier.size(width = 110.dp, height = 150.dp))
+        }
         Spacer(Modifier.width(16.dp))
         Column(Modifier.weight(1f)) {
             Text(book.title, style = MaterialTheme.typography.headlineSmall)
@@ -232,42 +232,6 @@ private fun PlaceholderCover(modifier: Modifier) {
 }
 
 @Composable
-private fun FileSelector(files: List<BookFile>, current: BookFile, onSelect: (BookFile) -> Unit) {
-    Column {
-        Text("本书文件", style = MaterialTheme.typography.titleSmall)
-        LazyRow(
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            modifier = Modifier.padding(top = 8.dp)
-        ) {
-            items(files) { file ->
-                FileChip(file, selected = file.uri == current.uri, onClick = { onSelect(file) })
-            }
-        }
-    }
-}
-
-@Composable
-private fun FileChip(file: BookFile, selected: Boolean, onClick: () -> Unit) {
-    Box(
-        modifier = Modifier
-            .clip(MaterialTheme.shapes.small)
-            .background(
-                if (selected) MaterialTheme.colorScheme.primaryContainer
-                else MaterialTheme.colorScheme.surfaceVariant
-            )
-            .clickable(onClick = onClick)
-            .padding(horizontal = 12.dp, vertical = 8.dp)
-    ) {
-        Text(
-            text = file.name,
-            style = MaterialTheme.typography.bodyMedium,
-            color = if (selected) MaterialTheme.colorScheme.onPrimaryContainer
-            else MaterialTheme.colorScheme.onSurfaceVariant
-        )
-    }
-}
-
-@Composable
 private fun LastReadCard(readState: ReadState?, onStartReading: () -> Unit) {
     Card(modifier = Modifier.fillMaxWidth()) {
         Column(Modifier.padding(16.dp)) {
@@ -326,13 +290,4 @@ private fun EmptyHint(text: String, modifier: Modifier) {
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
     }
-}
-
-/** 详情页初始选中的文件：上次读的文件 > 第一个 epub > 第一个文件。 */
-private fun initialFileIndex(files: List<BookFile>, readState: ReadState?): Int {
-    val fromProgress = readState?.fileUri?.let { uri -> files.indexOfFirst { it.uri == uri } } ?: -1
-    if (fromProgress >= 0) return fromProgress
-    val firstEpub = files.indexOfFirst { it.kind == FileKind.EPUB }
-    if (firstEpub >= 0) return firstEpub
-    return 0
 }

@@ -53,6 +53,11 @@ class BookRepository(context: Context) {
         prefs.edit().putString(KEY_BOOKS, array.toString()).apply()
     }
 
+    /** 删除一本书（按 uri 匹配），并写回持久化存储。 */
+    fun deleteBook(book: Book) {
+        saveBooks(loadBooks().filterNot { it.uri == book.uri })
+    }
+
     private companion object {
         const val PREFS_NAME = "book_shelf"
         const val KEY_BOOKS = "books"

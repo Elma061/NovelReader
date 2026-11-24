@@ -72,6 +72,28 @@ fun parseEpubDetail(context: Context, fileUri: String): EpubDetail {
     return EpubDetail(title = info.title, cover = cover, chapterTitles = chapterTitles)
 }
 
+/** 只解析 epub 的封面图（供书架展示），跳过章节标题解析，速度更快。 */
+fun parseEpubCover(context: Context, fileUri: String): ByteArray? {
+    val entries = runCatching {
+        context.contentResolver.openInputStream(Uri.parse(fileUri))?.use { readZipEntries(it, ::isTextName) }
+    }.getOrNull() ?: return null
+
+    val opfPath = findOpfPath(entries) ?: return null
+    val opf = findEntry(entries, opfPath)?.toString(Charsets.UTF_8) ?: return null
+    val info = parseOpf(opf) ?: return null
+
+    val baseDir = opfPath.substringBeforeLast('/', "")
+    val coverHref = info.coverImageId?.let { info.manifest[it] }
+        ?: info.coverId?.let { info.manifest[it] }
+    return coverHref
+        ?.let { resolvePath(baseDir, it) }
+        ?.let { path ->
+            runCatching {
+                context.contentResolver.openInputStream(Uri.parse(fileUri))?.use { readSingleEntry(it, path) }
+            }.getOrNull()
+        }
+}
+
 // ---------------------------------------------------------------------------
 // ZIP 读取
 // ---------------------------------------------------------------------------

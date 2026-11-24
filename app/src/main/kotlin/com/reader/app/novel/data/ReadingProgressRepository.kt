@@ -22,7 +22,9 @@ class ReadingProgressRepository(context: Context) {
             ReadState(
                 fileUri = obj.getString("fileUri"),
                 chapterIndex = obj.getInt("chapterIndex"),
-                chapterTitle = obj.optString("chapterTitle")
+                chapterTitle = obj.optString("chapterTitle"),
+                anchorIndex = obj.optInt("anchorIndex", 0),
+                anchorOffset = obj.optInt("anchorOffset", 0)
             )
         }.getOrNull()
     }
@@ -33,6 +35,8 @@ class ReadingProgressRepository(context: Context) {
             .put("fileUri", state.fileUri)
             .put("chapterIndex", state.chapterIndex)
             .put("chapterTitle", state.chapterTitle)
+            .put("anchorIndex", state.anchorIndex)
+            .put("anchorOffset", state.anchorOffset)
         prefs.edit().putString(bookUri, obj.toString()).apply()
     }
 
